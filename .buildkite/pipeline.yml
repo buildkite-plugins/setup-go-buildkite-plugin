@@ -6,22 +6,20 @@ steps:
   - label: ":lint-roller: Lint"
     plugins:
       - plugin-linter#v3.3.0:
-          id: buildkite/setup-go
+          id: setup-go
 
   - label: ":golang: Smoke test"
     command:
       - "command -v go"
       - "go version"
       - "go env -json GOVERSION GOROOT GOPATH GOMODCACHE GOCACHE GOBIN"
-      - "command -v shellcheck"
-      - "shellcheck --version"
-      - "shellcheck hooks/pre-command tests/pre-command.bats"
+      - '"$MISE_DATA_DIR/bin/mise" exec -- shellcheck --version'
+      - '"$MISE_DATA_DIR/bin/mise" exec -- shellcheck hooks/pre-command tests/pre-command.bats'
     plugins:
-      - buildkite/mise#v1.1.0: ~
-      - ./: 
-          version: 1.24.0
+      - mise#v1.1.0: ~
+      - ./: ~
 
   - label: ":shell: Shellcheck"
-    command: shellcheck hooks/* tests/pre-command.bats
+    command: '"$MISE_DATA_DIR/bin/mise" exec -- shellcheck hooks/* tests/pre-command.bats'
     plugins:
-      - buildkite/mise#v1.1.0: ~
+      - mise#v1.1.0: ~

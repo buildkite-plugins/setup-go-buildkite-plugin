@@ -19,7 +19,7 @@ This plugin is intentionally opinionated:
 steps:
   - label: ":golang: Test"
     plugins:
-      - setup-go#v0.1.0:
+      - buildkite-plugins/setup-go#v0.1.0:
           version: 1.24.0
     command: go test ./...
 ```
@@ -30,7 +30,7 @@ steps:
 steps:
   - label: ":golang: Test"
     plugins:
-      - setup-go#v0.1.0: ~
+      - buildkite-plugins/setup-go#v0.1.0: ~
     command: go test ./...
 ```
 
@@ -50,7 +50,7 @@ For `go.mod` and `go.work`, `toolchain go1.x.y` wins over `go 1.x`, while `toolc
 steps:
   - label: ":golang: Test backend"
     plugins:
-      - setup-go#v0.1.0:
+      - buildkite-plugins/setup-go#v0.1.0:
           dir: backend
     command: go test ./...
 ```
@@ -63,7 +63,7 @@ cache: ".buildkite/cache-volume"
 steps:
   - label: ":golang: Test"
     plugins:
-      - setup-go#v0.1.0: ~
+      - buildkite-plugins/setup-go#v0.1.0: ~
     command: go test ./...
 ```
 
@@ -112,7 +112,7 @@ Run plugin checks locally:
 
 ```bash
 mise install
-docker run --rm -v "$PWD:/plugin" -w /plugin buildkite/plugin-linter --id setup-go --path /plugin
+docker run --rm -v "$PWD:/plugin" -w /plugin buildkite/plugin-linter --id buildkite-plugins/setup-go --path /plugin
 docker run --rm -v "$PWD:/plugin" -w /plugin buildkite/plugin-tester
 bats tests/pre-command.bats
 "$(mise where shellcheck@0.11.0)/shellcheck-v0.11.0/shellcheck" hooks/pre-command tests/pre-command.bats

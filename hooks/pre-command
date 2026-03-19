@@ -7,11 +7,22 @@ plugin_cfg() {
   local key
   local normalized_key
   local var_name
+  local -a candidate_vars
 
   key="$1"
   normalized_key="$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
-  var_name="BUILDKITE_PLUGIN_SETUP_GO_${normalized_key}"
-  printf '%s' "${!var_name:-}"
+  candidate_vars=(
+    "BUILDKITE_PLUGIN_SETUP_GO_${normalized_key}"
+    "BUILDKITE_PLUGIN__${normalized_key}"
+    "BUILDKITE_PLUGIN_${normalized_key}"
+  )
+
+  for var_name in "${candidate_vars[@]}"; do
+    if [ -n "${!var_name:-}" ]; then
+      printf '%s' "${!var_name}"
+      return
+    fi
+  done
 }
 
 plugin_cfg_default() {

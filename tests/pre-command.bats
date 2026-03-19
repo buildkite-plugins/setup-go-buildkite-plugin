@@ -25,6 +25,16 @@ setup() {
   unset BUILDKITE_PLUGIN_SETUP_GO_DIR
   unset BUILDKITE_PLUGIN_SETUP_GO_VERSION
   unset BUILDKITE_PLUGIN_SETUP_GO_VERSION_FILE
+  unset BUILDKITE_PLUGIN_CACHE_ROOT
+  unset BUILDKITE_PLUGIN_DIR
+  unset BUILDKITE_PLUGIN_MISE_VERSION
+  unset BUILDKITE_PLUGIN_VERSION
+  unset BUILDKITE_PLUGIN_VERSION_FILE
+  unset BUILDKITE_PLUGIN__CACHE_ROOT
+  unset BUILDKITE_PLUGIN__DIR
+  unset BUILDKITE_PLUGIN__MISE_VERSION
+  unset BUILDKITE_PLUGIN__VERSION
+  unset BUILDKITE_PLUGIN__VERSION_FILE
   unset BUILDKITE_COMPUTE_TYPE
   unset GOBIN
   unset GOCACHE
@@ -318,6 +328,15 @@ MOCK
   grep -F "export GOLANGCI_LINT_CACHE=${HOME}/.cache/setup-go-buildkite-plugin/golangci-lint" "${BUILDKITE_ENV_FILE}"
   [[ "${output}" == *'"GOVERSION": "go1.24.0"'* ]]
   [[ "${output}" != *"white_check_mark"* ]]
+}
+
+@test "uses local plugin config env fallback" {
+  export BUILDKITE_PLUGIN__VERSION="1.24.0"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  grep -F "install pwd=${BUILDKITE_BUILD_CHECKOUT_PATH} install go@1.24.0" "${MISE_MOCK_LOG}"
 }
 
 @test "exports Go environment in the hook shell" {

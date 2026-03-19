@@ -441,6 +441,21 @@ EOF
   grep -F "export MISE_DATA_DIR=${XDG_DATA_HOME}/mise" "${BUILDKITE_ENV_FILE}"
 }
 
+@test "uses repo go from .tool-versions" {
+  unset MISE_DATA_DIR
+  export MISE_MOCK_CONFIG_GO_VERSION="1.24.0"
+  export XDG_DATA_HOME="${TEST_TMPDIR}/xdg-data"
+  printf 'go 1.24.0\n' > "${BUILDKITE_BUILD_CHECKOUT_PATH}/.tool-versions"
+  write_mise_mock "${XDG_DATA_HOME}/mise"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  grep -F "Using Go version: 1.24.0 (${BUILDKITE_BUILD_CHECKOUT_PATH}/.tool-versions)" <<< "${output}"
+  grep -F "install pwd=${BUILDKITE_BUILD_CHECKOUT_PATH} install go" "${MISE_MOCK_LOG}"
+  grep -F "env pwd=${BUILDKITE_BUILD_CHECKOUT_PATH} env --shell bash go" "${MISE_MOCK_LOG}"
+}
+
 @test "uses hosted cache volume automatically when available" {
   hosted_cache_root="${TEST_TMPDIR}/hosted-cache"
   unset MISE_DATA_DIR

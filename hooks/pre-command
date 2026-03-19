@@ -1,0 +1,614 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "~~~ Setup Go"
+
+plugin_cfg() {
+  local key
+  local normalized_key
+  local var_name
+
+  key="$1"
+  normalized_key="$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+  var_name="BUILDKITE_PLUGIN_SETUP_GO_${normalized_key}"
+  printf '%s' "${!var_name:-}"
+}
+
+plugin_cfg_default() {
+  local value
+  value="$(plugin_cfg "$1")"
+  if [ -n "$value" ]; then
+    printf '%s' "$value"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Required command missing: $1" >&2
+    exit 1
+  fi
+}
+
+append_to_buildkite_env() {
+  if [ -z "${BUILDKITE_ENV_FILE:-}" ]; then
+    return
+  fi
+
+  printf '%s\n' "$1" >> "$BUILDKITE_ENV_FILE"
+}
+
+export_value() {
+  local name="$1"
+  local value="$2"
+
+  export "${name}=${value}"
+  append_to_buildkite_env "$(printf 'export %s=%q' "$name" "$value")"
+}
+
+apply_shell_exports() {
+  local exports="$1"
+  local line
+
+  while IFS= read -r line; do
+    if [ -z "$line" ]; then
+      continue
+    fi
+
+    append_to_buildkite_env "$line"
+    eval "$line"
+  done <<< "$exports"
+}
+
+cleanup_install_mise() {
+  rm -f "$1"
+  rm -rf "$2"
+}
+
+hosted_cache_volume_root() {
+  printf '%s' "${MISE_HOSTED_CACHE_VOLUME_ROOT:-${SETUP_GO_HOSTED_CACHE_VOLUME_ROOT:-/cache/bkcache}}"
+}
+
+resolve_working_directory() {
+  local dir_cfg
+
+  dir_cfg="$(plugin_cfg dir)"
+  if [ -n "$dir_cfg" ]; then
+    WORKING_DIRECTORY="$dir_cfg"
+  else
+    WORKING_DIRECTORY="${BUILDKITE_BUILD_CHECKOUT_PATH:-${PWD}}"
+  fi
+
+  if [ ! -d "$WORKING_DIRECTORY" ]; then
+    echo "dir does not exist: $WORKING_DIRECTORY" >&2
+    exit 1
+  fi
+}
+
+resolve_cache_root() {
+  local cache_root_cfg
+  local hosted_root
+
+  cache_root_cfg="$(plugin_cfg cache-root)"
+  if [ -n "$cache_root_cfg" ]; then
+    CACHE_ROOT_SOURCE="plugin cache-root configuration"
+    CACHE_ROOT="$cache_root_cfg"
+    return
+  fi
+
+  hosted_root="$(hosted_cache_volume_root)"
+  if [ "${BUILDKITE_COMPUTE_TYPE:-self-hosted}" = "hosted" ] && [ -d "$hosted_root" ] && [ -w "$hosted_root" ]; then
+    CACHE_ROOT_SOURCE="Buildkite hosted agent cache volume"
+    CACHE_ROOT="${hosted_root}/setup-go"
+    return
+  fi
+
+  if [ -n "${XDG_CACHE_HOME:-}" ]; then
+    CACHE_ROOT_SOURCE="XDG_CACHE_HOME fallback"
+    CACHE_ROOT="${XDG_CACHE_HOME}/setup-go-buildkite-plugin"
+    return
+  fi
+
+  CACHE_ROOT_SOURCE="HOME fallback"
+  CACHE_ROOT="${HOME}/.cache/setup-go-buildkite-plugin"
+}
+
+resolve_mise_dir() {
+  local hosted_root
+
+  if [ -n "${MISE_DATA_DIR:-}" ]; then
+    MISE_DIR_SOURCE="MISE_DATA_DIR environment variable"
+    MISE_DIR="$MISE_DATA_DIR"
+    return
+  fi
+
+  if [ -n "$(plugin_cfg cache-root)" ]; then
+    MISE_DIR_SOURCE="cache root (${CACHE_ROOT_SOURCE})"
+    MISE_DIR="${CACHE_ROOT}/mise"
+    return
+  fi
+
+  hosted_root="$(hosted_cache_volume_root)"
+  if [ "${BUILDKITE_COMPUTE_TYPE:-self-hosted}" = "hosted" ] && [ -d "$hosted_root" ] && [ -w "$hosted_root" ]; then
+    MISE_DIR_SOURCE="Buildkite hosted agent cache volume"
+    MISE_DIR="${hosted_root}/mise"
+    return
+  fi
+
+  if [ -n "${XDG_DATA_HOME:-}" ]; then
+    MISE_DIR_SOURCE="XDG_DATA_HOME fallback"
+    MISE_DIR="${XDG_DATA_HOME}/mise"
+    return
+  fi
+
+  MISE_DIR_SOURCE="HOME fallback"
+  MISE_DIR="${HOME}/.local/share/mise"
+}
+
+resolve_go_cache_dirs() {
+  if [ -n "${GOCACHE:-}" ]; then
+    GO_BUILD_CACHE_SOURCE="GOCACHE environment variable"
+    GO_BUILD_CACHE_DIR="$GOCACHE"
+  else
+    GO_BUILD_CACHE_SOURCE="cache root (${CACHE_ROOT_SOURCE})"
+    GO_BUILD_CACHE_DIR="${CACHE_ROOT}/go/build"
+  fi
+
+  if [ -n "${GOPATH:-}" ]; then
+    GO_PATH_SOURCE="GOPATH environment variable"
+    GO_PATH_DIR="$GOPATH"
+  else
+    GO_PATH_SOURCE="cache root (${CACHE_ROOT_SOURCE})"
+    GO_PATH_DIR="${CACHE_ROOT}/go"
+  fi
+
+  if [ -n "${GOMODCACHE:-}" ]; then
+    GO_MOD_CACHE_SOURCE="GOMODCACHE environment variable"
+    GO_MOD_CACHE_DIR="$GOMODCACHE"
+  else
+    GO_MOD_CACHE_SOURCE="derived from GOPATH"
+    GO_MOD_CACHE_DIR="${GO_PATH_DIR}/pkg/mod"
+  fi
+
+  if [ -n "${GOBIN:-}" ]; then
+    GO_BIN_SOURCE="GOBIN environment variable"
+    GO_BIN_DIR="$GOBIN"
+  else
+    GO_BIN_SOURCE="derived from GOPATH"
+    GO_BIN_DIR="${GO_PATH_DIR}/bin"
+  fi
+
+  if [ -n "${GOLANGCI_LINT_CACHE:-}" ]; then
+    GOLANGCI_LINT_CACHE_SOURCE="GOLANGCI_LINT_CACHE environment variable"
+    GOLANGCI_LINT_CACHE_DIR="$GOLANGCI_LINT_CACHE"
+  else
+    GOLANGCI_LINT_CACHE_SOURCE="cache root (${CACHE_ROOT_SOURCE})"
+    GOLANGCI_LINT_CACHE_DIR="${CACHE_ROOT}/golangci-lint"
+  fi
+}
+
+detect_platform() {
+  local os
+  local arch
+  local musl_suffix
+
+  os=""
+  arch=""
+  musl_suffix=""
+
+  case "$(uname -s)" in
+    Linux)
+      os="linux"
+      ;;
+    Darwin)
+      os="macos"
+      ;;
+    *)
+      echo "Unsupported OS: $(uname -s)" >&2
+      exit 1
+      ;;
+  esac
+
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch="x64"
+      ;;
+    arm64|aarch64)
+      arch="arm64"
+      ;;
+    armv7l|armv7)
+      arch="armv7"
+      ;;
+    *)
+      echo "Unsupported architecture: $(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ "$os" = "linux" ] && command -v ldd >/dev/null 2>&1; then
+    if ldd --version 2>&1 | grep -qi musl; then
+      musl_suffix="-musl"
+    fi
+  fi
+
+  printf '%s' "${os}-${arch}${musl_suffix}"
+}
+
+latest_mise_version() {
+  curl -fsSL https://mise.jdx.dev/VERSION | tr -d '\r\n'
+}
+
+installed_mise_version() {
+  if [ ! -x "$MISE_BINARY" ]; then
+    return
+  fi
+
+  "$MISE_BINARY" --version 2>/dev/null | awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        token = $i
+        sub(/^v/, "", token)
+        if (token ~ /^[0-9]+(\.[0-9]+)+$/) {
+          print token
+          exit
+        }
+      }
+    }
+  '
+}
+
+install_mise() {
+  local version="$1"
+  local platform="$2"
+  local archive
+  local extracted
+  local url
+
+  url="https://github.com/jdx/mise/releases/download/v${version}/mise-v${version}-${platform}.tar.gz"
+  archive="$(mktemp)"
+  extracted="$(mktemp -d)"
+  echo "Downloading mise v${version} for ${platform}"
+
+  (
+    set -euo pipefail
+    trap 'cleanup_install_mise "$archive" "$extracted"' EXIT
+
+    curl -fsSL "$url" > "$archive"
+    tar -xzf "$archive" -C "$extracted"
+
+    mkdir -p "$MISE_BIN"
+    if [ -x "$extracted/mise/bin/mise" ]; then
+      mv "$extracted/mise/bin/mise" "$MISE_BINARY"
+    elif [ -x "$extracted/bin/mise" ]; then
+      mv "$extracted/bin/mise" "$MISE_BINARY"
+    else
+      echo "Could not find mise binary in ${url}" >&2
+      exit 1
+    fi
+  )
+}
+
+run_mise() {
+  local -a mise_env
+
+  if [ ! -x "$MISE_BINARY" ]; then
+    echo "mise binary not found at $MISE_BINARY" >&2
+    exit 1
+  fi
+
+  mise_env=(
+    "MISE_DATA_DIR=$MISE_DIR"
+    "MISE_TRUSTED_CONFIG_PATHS=$WORKING_DIRECTORY"
+    "MISE_YES=1"
+    "PATH=$MISE_BIN:$PATH"
+  )
+
+  (
+    set -euo pipefail
+    cd "$WORKING_DIRECTORY"
+    env "${mise_env[@]}" "$MISE_BINARY" "$@"
+  )
+}
+
+normalize_go_version() {
+  local version="$1"
+  version="${version#go}"
+  version="${version#v}"
+  printf '%s' "$version"
+}
+
+parse_tool_versions_go() {
+  awk '$1 == "go" { print $2; exit }' "$1"
+}
+
+parse_go_mod_like_version() {
+  awk '
+    $1 == "go" && go_version == "" { go_version = $2 }
+    $1 == "toolchain" {
+      toolchain = $2
+      if (toolchain == "default") {
+        next
+      }
+      sub(/^go/, "", toolchain)
+      if (toolchain != "") {
+        found_toolchain = 1
+        print toolchain
+        exit
+      }
+    }
+    END {
+      if (!found_toolchain && go_version != "") {
+        print go_version
+      }
+    }
+  ' "$1"
+}
+
+parse_mise_toml_go() {
+  awk '
+    function trim_value(value) {
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      sub(/^[\"\047]/, "", value)
+      sub(/[\"\047]$/, "", value)
+      sub(/[[:space:]]+#.*/, "", value)
+      sub(/,.*/, "", value)
+      return value
+    }
+
+    /^[[:space:]]*#/ {
+      next
+    }
+
+    /^[[:space:]]*\[tools\.go\][[:space:]]*$/ {
+      in_tools_go = 1
+      next
+    }
+
+    /^[[:space:]]*\[/ {
+      in_tools_go = 0
+    }
+
+    /^[[:space:]]*go[[:space:]]*=/ {
+      line = $0
+      sub(/^[[:space:]]*go[[:space:]]*=[[:space:]]*/, "", line)
+
+      if (line ~ /^\{/) {
+        if (line ~ /version[[:space:]]*=/) {
+          sub(/.*version[[:space:]]*=[[:space:]]*/, "", line)
+          sub(/[}].*/, "", line)
+          print trim_value(line)
+          exit
+        }
+
+        in_inline_go = 1
+        next
+      }
+
+      print trim_value(line)
+      exit
+    }
+
+    in_inline_go && /version[[:space:]]*=/ {
+      line = $0
+      sub(/.*version[[:space:]]*=[[:space:]]*/, "", line)
+      sub(/[}].*/, "", line)
+      print trim_value(line)
+      exit
+    }
+
+    in_inline_go && /^[[:space:]]*}/ {
+      in_inline_go = 0
+    }
+
+    in_tools_go && /^[[:space:]]*version[[:space:]]*=/ {
+      line = $0
+      sub(/^[[:space:]]*version[[:space:]]*=[[:space:]]*/, "", line)
+      print trim_value(line)
+      exit
+    }
+  ' "$1"
+}
+
+parse_plain_version_file() {
+  sed -nE '/^[[:space:]]*(#|$)/d { s/^[[:space:]]*//; s/[[:space:]]*$//; p; q; }' "$1"
+}
+
+parse_go_version_from_file() {
+  local file="$1"
+  local base
+  local version=""
+
+  base="$(basename "$file")"
+  case "$base" in
+    .tool-versions)
+      version="$(parse_tool_versions_go "$file")"
+      ;;
+    go.mod|go.work)
+      version="$(parse_go_mod_like_version "$file")"
+      ;;
+    mise.toml|.mise.toml)
+      version="$(parse_mise_toml_go "$file")"
+      ;;
+    *)
+      version="$(parse_plain_version_file "$file")"
+      ;;
+  esac
+
+  normalize_go_version "$version"
+}
+
+resolve_go_from_mise_config() {
+  local current_json
+  local result
+
+  current_json="$(run_mise ls --current --json go)"
+  result="$(awk -v workdir="${WORKING_DIRECTORY}/" '
+    function extract_value(line, key) {
+      sub(".*\"" key "\":[[:space:]]*\"", "", line)
+      sub("\".*", "", line)
+      return line
+    }
+
+    /"version":/ {
+      current_version = extract_value($0, "version")
+    }
+
+    /"path":/ {
+      current_path = extract_value($0, "path")
+      if (current_version != "" && index(current_path, workdir) == 1) {
+        printf "%s\t%s\n", current_version, current_path
+        exit
+      }
+    }
+  ' <<< "$current_json")"
+
+  if [ -z "$result" ]; then
+    return 1
+  fi
+
+  printf '%s\n' "$result"
+}
+
+resolve_version_file_path() {
+  local version_file="$1"
+
+  if [ "${version_file#/}" != "$version_file" ]; then
+    printf '%s' "$version_file"
+    return
+  fi
+
+  printf '%s/%s' "$WORKING_DIRECTORY" "$version_file"
+}
+
+resolve_go_version() {
+  local version_cfg
+  local version_file_cfg
+  local version_file_path
+  local candidate
+  local candidate_path
+  local candidate_version
+  local version
+
+  version_cfg="$(plugin_cfg version)"
+  if [ -n "$version_cfg" ]; then
+    GO_VERSION_SOURCE="plugin version configuration"
+    GO_VERSION="$(normalize_go_version "$version_cfg")"
+    GO_MISE_TARGET="go@${GO_VERSION}"
+    return
+  fi
+
+  version_file_cfg="$(plugin_cfg version-file)"
+  if [ -n "$version_file_cfg" ]; then
+    version_file_path="$(resolve_version_file_path "$version_file_cfg")"
+    if [ ! -f "$version_file_path" ]; then
+      echo "version-file does not exist: $version_file_path" >&2
+      exit 1
+    fi
+
+    version="$(parse_go_version_from_file "$version_file_path")"
+    if [ -z "$version" ]; then
+      echo "Could not determine Go version from version-file: $version_file_path" >&2
+      exit 1
+    fi
+
+    GO_VERSION_SOURCE="plugin version-file configuration (${version_file_path})"
+    GO_VERSION="$version"
+    GO_MISE_TARGET="go@${GO_VERSION}"
+    return
+  fi
+
+  if candidate="$(resolve_go_from_mise_config)"; then
+    IFS=$'\t' read -r candidate_version candidate_path <<< "$candidate"
+    GO_VERSION_SOURCE="$candidate_path"
+    GO_VERSION="$candidate_version"
+    GO_MISE_TARGET="go"
+    return
+  fi
+
+  for candidate in "$WORKING_DIRECTORY/go.work" "$WORKING_DIRECTORY/go.mod"; do
+    if [ ! -f "$candidate" ]; then
+      continue
+    fi
+
+    version="$(parse_go_version_from_file "$candidate")"
+    if [ -n "$version" ]; then
+      GO_VERSION_SOURCE="$candidate"
+      GO_VERSION="$version"
+      GO_MISE_TARGET="go@${GO_VERSION}"
+      return
+    fi
+  done
+
+  echo "Could not determine Go version. Set plugin version, version-file, or add one of: .tool-versions, mise.toml, .mise.toml, go.work, go.mod" >&2
+  exit 1
+}
+
+ensure_cache_dirs() {
+  mkdir -p "$MISE_BIN" "$GO_BUILD_CACHE_DIR" "$GO_MOD_CACHE_DIR" "$GO_BIN_DIR" "$GOLANGCI_LINT_CACHE_DIR"
+}
+
+main() {
+  local current_mise_version
+  local requested_mise_version_raw
+  local mise_version
+  local platform
+  local mise_exports
+
+  resolve_working_directory
+  resolve_cache_root
+  resolve_mise_dir
+  resolve_go_cache_dirs
+
+  MISE_BIN="${MISE_DIR}/bin"
+  MISE_BINARY="${MISE_BIN}/mise"
+
+  echo "Using cache root: ${CACHE_ROOT} (${CACHE_ROOT_SOURCE})"
+  echo "Using mise data dir: ${MISE_DIR} (${MISE_DIR_SOURCE})"
+  echo "Using go build cache: ${GO_BUILD_CACHE_DIR} (${GO_BUILD_CACHE_SOURCE})"
+  echo "Using go module cache: ${GO_MOD_CACHE_DIR} (${GO_MOD_CACHE_SOURCE})"
+  echo "Using go path: ${GO_PATH_DIR} (${GO_PATH_SOURCE})"
+  echo "Using go bin dir: ${GO_BIN_DIR} (${GO_BIN_SOURCE})"
+  echo "Using golangci-lint cache: ${GOLANGCI_LINT_CACHE_DIR} (${GOLANGCI_LINT_CACHE_SOURCE})"
+
+  requested_mise_version_raw="$(plugin_cfg_default mise-version latest)"
+  if [ "$requested_mise_version_raw" = "latest" ]; then
+    mise_version="$(latest_mise_version)"
+  else
+    mise_version="${requested_mise_version_raw#v}"
+  fi
+  mise_version="${mise_version#v}"
+
+  platform="$(detect_platform)"
+  require_cmd curl
+  require_cmd tar
+
+  ensure_cache_dirs
+
+  current_mise_version="$(installed_mise_version)"
+  if [ -z "$current_mise_version" ] || [ "$current_mise_version" != "$mise_version" ]; then
+    install_mise "$mise_version" "$platform"
+  fi
+
+  resolve_go_version
+  echo "Using Go version: ${GO_VERSION} (${GO_VERSION_SOURCE})"
+
+  run_mise --version
+  run_mise install "$GO_MISE_TARGET"
+
+  export_value MISE_DATA_DIR "$MISE_DIR"
+  export_value MISE_TRUSTED_CONFIG_PATHS "$WORKING_DIRECTORY"
+  export_value MISE_YES "1"
+  export_value GOCACHE "$GO_BUILD_CACHE_DIR"
+  export_value GOPATH "$GO_PATH_DIR"
+  export_value GOMODCACHE "$GO_MOD_CACHE_DIR"
+  export_value GOLANGCI_LINT_CACHE "$GOLANGCI_LINT_CACHE_DIR"
+  mise_exports="$(run_mise env --shell bash "$GO_MISE_TARGET")"
+  apply_shell_exports "$mise_exports"
+
+  export_value PATH "${GOBIN:-${GO_BIN_DIR}}:${PATH}"
+  go env -json GOVERSION GOROOT GOPATH GOMODCACHE GOCACHE GOBIN
+}
+
+main "$@"

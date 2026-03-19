@@ -1,0 +1,25 @@
+name: Setup Go Buildkite Plugin
+description: Install Go via mise, export the Go toolchain, and wire Go caches for Buildkite steps.
+author: https://github.com/buildkite
+requirements:
+  - curl
+  - tar
+configuration:
+  additionalProperties: false
+  properties:
+    version:
+      type: string
+      description: Go version to install, for example 1.24.0 or 1.24.
+    version-file:
+      type: string
+      description: Path to a file containing the Go version. Relative paths are resolved from dir.
+    dir:
+      type: string
+      description: Directory where version discovery runs. Defaults to the checkout directory.
+    mise-version:
+      type: string
+      default: latest
+      description: Version of mise to install, for example 2026.3.9.
+    cache-root:
+      type: string
+      description: Root directory to use for Go caches, and for mise data when you want it colocated there.

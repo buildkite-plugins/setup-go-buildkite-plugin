@@ -5,7 +5,7 @@ steps:
 
   - label: ":lint-roller: Lint"
     plugins:
-      - plugin-linter#v3.0.0:
+      - plugin-linter#v3.3.0:
           id: buildkite/setup-go
 
   - label: ":golang: Smoke test"

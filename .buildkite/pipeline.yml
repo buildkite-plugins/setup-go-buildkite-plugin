@@ -10,16 +10,19 @@ steps:
 
   - label: ":golang: Smoke test"
     command:
+      - 'export PATH="$${MISE_DATA_DIR:-$${HOME}/.local/share/mise}/bin:$${PATH}"'
       - "command -v go"
       - "go version"
       - "go env -json GOVERSION GOROOT GOPATH GOMODCACHE GOCACHE GOBIN"
-      - '"$${MISE_DATA_DIR:-$${HOME}/.local/share/mise}/bin/mise" exec -- shellcheck --version'
-      - '"$${MISE_DATA_DIR:-$${HOME}/.local/share/mise}/bin/mise" exec -- shellcheck hooks/pre-command tests/pre-command.bats'
+      - "mise exec -- shellcheck --version"
+      - "mise exec -- shellcheck hooks/pre-command tests/pre-command.bats"
     plugins:
       - mise#v1.1.0: ~
       - ./: ~
 
   - label: ":shell: Shellcheck"
-    command: '"$${MISE_DATA_DIR:-$${HOME}/.local/share/mise}/bin/mise" exec -- shellcheck hooks/* tests/pre-command.bats'
+    command:
+      - 'export PATH="$${MISE_DATA_DIR:-$${HOME}/.local/share/mise}/bin:$${PATH}"'
+      - "mise exec -- shellcheck hooks/* tests/pre-command.bats"
     plugins:
       - mise#v1.1.0: ~

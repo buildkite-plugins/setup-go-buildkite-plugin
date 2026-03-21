@@ -25,6 +25,16 @@ setup() {
   unset BUILDKITE_PLUGIN_SETUP_GO_DIR
   unset BUILDKITE_PLUGIN_SETUP_GO_VERSION
   unset BUILDKITE_PLUGIN_SETUP_GO_VERSION_FILE
+  unset BUILDKITE_PLUGIN_CACHE_ROOT
+  unset BUILDKITE_PLUGIN_DIR
+  unset BUILDKITE_PLUGIN_MISE_VERSION
+  unset BUILDKITE_PLUGIN_VERSION
+  unset BUILDKITE_PLUGIN_VERSION_FILE
+  unset BUILDKITE_PLUGIN__CACHE_ROOT
+  unset BUILDKITE_PLUGIN__DIR
+  unset BUILDKITE_PLUGIN__MISE_VERSION
+  unset BUILDKITE_PLUGIN__VERSION
+  unset BUILDKITE_PLUGIN__VERSION_FILE
   unset BUILDKITE_COMPUTE_TYPE
   unset GOBIN
   unset GOCACHE
@@ -320,6 +330,15 @@ MOCK
   [[ "${output}" != *"white_check_mark"* ]]
 }
 
+@test "uses local plugin config env fallback" {
+  export BUILDKITE_PLUGIN__VERSION="1.24.0"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  grep -F "install pwd=${BUILDKITE_BUILD_CHECKOUT_PATH} install go@1.24.0" "${MISE_MOCK_LOG}"
+}
+
 @test "exports Go environment in the hook shell" {
   export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
 
@@ -420,6 +439,21 @@ EOF
   grep -F "install pwd=${BUILDKITE_BUILD_CHECKOUT_PATH} install go" "${MISE_MOCK_LOG}"
   grep -F "env pwd=${BUILDKITE_BUILD_CHECKOUT_PATH} env --shell bash go" "${MISE_MOCK_LOG}"
   grep -F "export MISE_DATA_DIR=${XDG_DATA_HOME}/mise" "${BUILDKITE_ENV_FILE}"
+}
+
+@test "uses repo go from .tool-versions" {
+  unset MISE_DATA_DIR
+  export MISE_MOCK_CONFIG_GO_VERSION="1.24.0"
+  export XDG_DATA_HOME="${TEST_TMPDIR}/xdg-data"
+  printf 'go 1.24.0\n' > "${BUILDKITE_BUILD_CHECKOUT_PATH}/.tool-versions"
+  write_mise_mock "${XDG_DATA_HOME}/mise"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  grep -F "Using Go version: 1.24.0 (${BUILDKITE_BUILD_CHECKOUT_PATH}/.tool-versions)" <<< "${output}"
+  grep -F "install pwd=${BUILDKITE_BUILD_CHECKOUT_PATH} install go" "${MISE_MOCK_LOG}"
+  grep -F "env pwd=${BUILDKITE_BUILD_CHECKOUT_PATH} env --shell bash go" "${MISE_MOCK_LOG}"
 }
 
 @test "uses hosted cache volume automatically when available" {

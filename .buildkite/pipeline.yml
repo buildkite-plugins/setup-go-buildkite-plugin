@@ -17,7 +17,7 @@ steps:
       - "mise exec -- shellcheck --version"
       - "mise exec -- shellcheck hooks/pre-command tests/pre-command.bats"
     plugins:
-      - mise#v1.1.0: ~
+      - mise#v1.1.5: ~
       - ./: ~
 
   - label: ":shell: Shellcheck"
@@ -25,4 +25,4 @@ steps:
       - 'export PATH="$${MISE_DATA_DIR:-$${HOME}/.local/share/mise}/bin:$${PATH}"'
       - "mise exec -- shellcheck hooks/* tests/pre-command.bats"
     plugins:
-      - mise#v1.1.0: ~
+      - mise#v1.1.5: ~

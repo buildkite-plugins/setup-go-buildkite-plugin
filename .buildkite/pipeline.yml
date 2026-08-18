@@ -15,7 +15,7 @@ steps:
       - "go version"
       - "go env -json GOVERSION GOROOT GOPATH GOMODCACHE GOCACHE GOBIN"
       - "mise exec -- shellcheck --version"
-      - "mise exec -- shellcheck hooks/pre-command tests/pre-command.bats"
+      - "mise exec -- shellcheck hooks/* lib/* tests/*.bats"
     plugins:
       - mise#v1.1.0: ~
       - ./: ~
@@ -23,6 +23,6 @@ steps:
   - label: ":shell: Shellcheck"
     command:
       - 'export PATH="$${MISE_DATA_DIR:-$${HOME}/.local/share/mise}/bin:$${PATH}"'
-      - "mise exec -- shellcheck hooks/* tests/pre-command.bats"
+      - "mise exec -- shellcheck hooks/* lib/* tests/*.bats"
     plugins:
       - mise#v1.1.0: ~

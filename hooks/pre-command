@@ -3,6 +3,8 @@ set -euo pipefail
 
 echo "~~~ Setup Go"
 
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 plugin_cfg() {
   local key
   local normalized_key
@@ -34,6 +36,9 @@ plugin_cfg_default() {
     printf '%s' "$2"
   fi
 }
+
+# shellcheck source=lib/cache.bash
+. "${HOOK_DIR}/../lib/cache.bash"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -615,11 +620,18 @@ main() {
   export_value GOPATH "$GO_PATH_DIR"
   export_value GOMODCACHE "$GO_MOD_CACHE_DIR"
   export_value GOLANGCI_LINT_CACHE "$GOLANGCI_LINT_CACHE_DIR"
+  export_value SETUP_GO_CACHE_VERSION "$GO_VERSION"
   mise_exports="$(run_mise env --shell bash "$GO_MISE_TARGET")"
   apply_shell_exports "$mise_exports"
 
   export_value PATH "${GOBIN:-${GO_BIN_DIR}}:${PATH}"
   go env -json GOVERSION GOROOT GOPATH GOMODCACHE GOCACHE GOBIN
+
+  if setup_go_cache_enabled; then
+    echo "~~~ Restoring Go caches"
+    setup_go_cache_write_config
+    setup_go_cache_run restore
+  fi
 }
 
 main "$@"

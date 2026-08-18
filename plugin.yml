@@ -23,3 +23,26 @@ configuration:
     cache-root:
       type: string
       description: Root directory to use for Go caches, and for mise data when you want it colocated there.
+    cache:
+      type: boolean
+      default: false
+      description: Restore and save Go caches with Buildkite Cache. Opt-in during private preview.
+    cache-registry:
+      type: string
+      default: "~"
+      description: Cache registry slug. Defaults to the cluster's default registry.
+    cache-dependency-path:
+      oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
+      description: File paths or globs used to invalidate Go caches. Defaults to go.work.sum, go.sum, go.work, or go.mod.
+    cache-fail-on-error:
+      type: boolean
+      default: false
+      description: Fail the step when a Cache restore or save operation errors. Cache misses are always non-fatal.
+    cache-annotations:
+      type: boolean
+      default: true
+      description: Annotate Cache operation failures when cache-fail-on-error is false.

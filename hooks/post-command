@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+plugin_cfg() {
+  local key
+  local normalized_key
+  local var_name
+
+  key="$1"
+  normalized_key="$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+  for var_name in \
+    "BUILDKITE_PLUGIN_SETUP_GO_${normalized_key}" \
+    "BUILDKITE_PLUGIN__${normalized_key}" \
+    "BUILDKITE_PLUGIN_${normalized_key}"; do
+    if [ -n "${!var_name:-}" ]; then
+      printf '%s' "${!var_name}"
+      return
+    fi
+  done
+}
+
+plugin_cfg_default() {
+  local value
+  value="$(plugin_cfg "$1")"
+  printf '%s' "${value:-$2}"
+}
+
+# shellcheck source=lib/cache.bash
+. "${HOOK_DIR}/../lib/cache.bash"
+
+if ! setup_go_cache_enabled; then
+  exit 0
+fi
+
+if [ "${BUILDKITE_COMMAND_EXIT_STATUS:-0}" -ne 0 ]; then
+  echo "Skipping Go cache save because the command failed"
+  rm -rf -- "$(setup_go_cache_state_dir)"
+  exit 0
+fi
+
+echo "~~~ Saving Go caches"
+trap 'rm -rf -- "$(setup_go_cache_state_dir)"' EXIT
+setup_go_cache_run save

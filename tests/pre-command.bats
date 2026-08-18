@@ -7,6 +7,7 @@ setup() {
   export HOME="${TEST_TMPDIR}/home"
   export BUILDKITE_BUILD_CHECKOUT_PATH="${TEST_TMPDIR}/checkout"
   export BUILDKITE_ENV_FILE="${TEST_TMPDIR}/env"
+  export BUILDKITE_JOB_ID="test-job"
   export BUILDKITE_PLUGIN_SETUP_GO_MISE_VERSION="1.0.0"
   export MISE_MOCK_CONFIG_GO_VERSION="1.0.0"
   export PATH="${TEST_TMPDIR}/mock-bin:${PATH}"
@@ -22,6 +23,13 @@ setup() {
   : > "${MISE_MOCK_LOG}"
 
   unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_ROOT
+  unset BUILDKITE_PLUGIN_SETUP_GO_CACHE
+  unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_ANNOTATIONS
+  unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH
+  unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH_0
+  unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH_1
+  unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_FAIL_ON_ERROR
+  unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_REGISTRY
   unset BUILDKITE_PLUGIN_SETUP_GO_DIR
   unset BUILDKITE_PLUGIN_SETUP_GO_VERSION
   unset BUILDKITE_PLUGIN_SETUP_GO_VERSION_FILE
@@ -170,6 +178,25 @@ echo "unexpected ${tool} invocation" >&2
 exit 1
 MOCK
   chmod +x "${TEST_TMPDIR}/mock-bin/${tool}"
+}
+
+write_buildkite_agent_mock() {
+  cat > "${TEST_TMPDIR}/mock-bin/buildkite-agent" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${1:-}" = "annotate" ]; then
+  printf 'annotate %s body=' "$*" >> "${BUILDKITE_AGENT_MOCK_LOG}"
+  cat >> "${BUILDKITE_AGENT_MOCK_LOG}"
+  exit 0
+fi
+
+printf '%s\n' "$*" >> "${BUILDKITE_AGENT_MOCK_LOG}"
+if [ "${BUILDKITE_AGENT_MOCK_FAIL_OPERATION:-}" = "${2:-}" ]; then
+  exit 1
+fi
+MOCK
+  chmod +x "${TEST_TMPDIR}/mock-bin/buildkite-agent"
 }
 
 teardown() {
@@ -502,4 +529,63 @@ EOF
   [ "${status}" -eq 0 ]
   [ -x "${MISE_DATA_DIR}/bin/mise" ]
   [[ "${output}" != *"archive: unbound variable"* ]]
+}
+
+@test "opt-in Buildkite Cache generates job config, restores, and saves after success" {
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE="true"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE_REGISTRY="go-registry"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH_0="go.mod"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH_1="go.sum"
+  export BUILDKITE_AGENT_MOCK_LOG="${TEST_TMPDIR}/agent.log"
+  write_buildkite_agent_mock
+  touch "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.mod" "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.sum"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  config_file="${TEST_TMPDIR}/setup-go-buildkite-plugin-test-job/cache.yml"
+  [ -f "${config_file}" ]
+  grep -F "{ checksum: ['go.mod', 'go.sum'] }" "${config_file}"
+  grep -F "${HOME}/.cache/setup-go-buildkite-plugin/go/pkg/mod" "${config_file}"
+  grep -F "cache restore --cache-config-file ${config_file} --registry go-registry --name setup-go-modules --name setup-go-build" "${BUILDKITE_AGENT_MOCK_LOG}"
+
+  BUILDKITE_COMMAND_EXIT_STATUS=0 run bash hooks/post-command
+
+  [ "${status}" -eq 0 ]
+  grep -F "cache save --cache-config-file ${config_file} --registry go-registry --name setup-go-modules --name setup-go-build" "${BUILDKITE_AGENT_MOCK_LOG}"
+  [ ! -e "${config_file}" ]
+}
+
+@test "Buildkite Cache errors warn and annotate by default" {
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE="true"
+  export BUILDKITE_AGENT_MOCK_LOG="${TEST_TMPDIR}/agent.log"
+  export BUILDKITE_AGENT_MOCK_FAIL_OPERATION="restore"
+  write_buildkite_agent_mock
+  touch "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.mod"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"setup-go Buildkite Cache restore failed"* ]]
+  grep -F "annotate annotate --style warning --context setup-go-cache-test-job" "${BUILDKITE_AGENT_MOCK_LOG}"
+  grep -F "registry policy denied the operation" "${BUILDKITE_AGENT_MOCK_LOG}"
+}
+
+@test "Buildkite Cache errors can fail the step without annotation" {
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE="true"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE_FAIL_ON_ERROR="true"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE_ANNOTATIONS="false"
+  export BUILDKITE_AGENT_MOCK_LOG="${TEST_TMPDIR}/agent.log"
+  export BUILDKITE_AGENT_MOCK_FAIL_OPERATION="restore"
+  write_buildkite_agent_mock
+  touch "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.mod"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -ne 0 ]
+  run grep -F "annotate" "${BUILDKITE_AGENT_MOCK_LOG}"
+  [ "${status}" -ne 0 ]
 }

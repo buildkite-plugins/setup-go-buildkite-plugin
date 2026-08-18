@@ -69,6 +69,34 @@ steps:
 
 When running on Buildkite hosted agents, the plugin automatically uses `/cache/bkcache/mise` for `MISE_DATA_DIR` and `/cache/bkcache/setup-go` for Go caches when a cache volume is attached. Buildkite only mounts that volume when the pipeline or step defines `cache`, so you still need to request one in `pipeline.yml`.
 
+### Buildkite Cache private preview
+
+Buildkite Cache support is opt-in, so existing plugin users are unaffected:
+
+```yml
+steps:
+  - label: ":golang: Test"
+    command: go test ./...
+    plugins:
+      - setup-go#v0.1.0:
+          cache: true
+```
+
+The plugin restores `GOMODCACHE` and `GOCACHE` before the command and saves them after a successful command. It generates a job-scoped `cache.yml`; the repository does not need to provide one. Cache misses are non-fatal. Other Cache errors warn and annotate by default.
+
+The default cache identity includes OS, architecture, resolved Go version, dependency checksum, branch, and commit where appropriate. Dependency discovery uses the first available file in this order: `go.work.sum`, `go.sum`, `go.work`, then `go.mod`. Override it for a monorepo or non-standard layout:
+
+```yml
+plugins:
+  - setup-go#v0.1.0:
+      cache: true
+      cache-dependency-path:
+        - backend/go.sum
+        - shared/go.sum
+```
+
+The cluster default registry (`~`) is used unless `cache-registry` is set. Registry policies enforce server-side save and restore authorization. The current Cache API does not expose effective policy details to jobs, so the plugin can annotate an observed failure but cannot preflight or classify the policy.
+
 ## Configuration
 
 - `version`: Go version to install, for example `1.24.0`. Highest precedence.
@@ -76,6 +104,11 @@ When running on Buildkite hosted agents, the plugin automatically uses `/cache/b
 - `dir`: directory used for version discovery. Defaults to the checkout directory.
 - `mise-version` (default: `latest`): mise version to install.
 - `cache-root`: root directory for `GOCACHE`, `GOMODCACHE`, `GOPATH`, and `GOLANGCI_LINT_CACHE`. When set, `MISE_DATA_DIR` is colocated under `<cache-root>/mise`.
+- `cache` (default: `false`): restore and save Go caches with Buildkite Cache.
+- `cache-registry` (default: `~`): registry slug; `~` selects the cluster default.
+- `cache-dependency-path`: one or more paths or globs whose checksum invalidates the cache.
+- `cache-fail-on-error` (default: `false`): fail on Cache service, configuration, or authorization errors. A cache miss remains non-fatal.
+- `cache-annotations` (default: `true`): annotate Cache operation failures.
 
 ## Environment
 
@@ -115,5 +148,5 @@ mise install
 docker run --rm -v "$PWD:/plugin" -w /plugin buildkite/plugin-linter --id setup-go --path /plugin
 docker run --rm -v "$PWD:/plugin" -w /plugin buildkite/plugin-tester
 bats tests/pre-command.bats
-"$(mise where shellcheck@0.11.0)/shellcheck-v0.11.0/shellcheck" hooks/pre-command tests/pre-command.bats
+"$(mise where shellcheck@0.11.0)/shellcheck-v0.11.0/shellcheck" hooks/* lib/* tests/*.bats
 ```

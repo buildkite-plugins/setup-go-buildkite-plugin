@@ -24,7 +24,6 @@ setup() {
 
   unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_ROOT
   unset BUILDKITE_PLUGIN_SETUP_GO_CACHE
-  unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_ANNOTATIONS
   unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH
   unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH_0
   unset BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH_1
@@ -184,12 +183,6 @@ write_buildkite_agent_mock() {
   cat > "${TEST_TMPDIR}/mock-bin/buildkite-agent" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-
-if [ "${1:-}" = "annotate" ]; then
-  printf 'annotate %s body=' "$*" >> "${BUILDKITE_AGENT_MOCK_LOG}"
-  cat >> "${BUILDKITE_AGENT_MOCK_LOG}"
-  exit 0
-fi
 
 printf '%s\n' "$*" >> "${BUILDKITE_AGENT_MOCK_LOG}"
 if [ "${1:-}" = "cache" ]; then
@@ -575,10 +568,11 @@ EOF
   [ ! -e "${TEST_TMPDIR}/setup-go-buildkite-plugin-test-job" ]
 }
 
-@test "Buildkite Cache errors warn and annotate by default" {
+@test "Buildkite Cache errors warn without failing the step by default" {
   export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
   export BUILDKITE_PLUGIN_SETUP_GO_CACHE="true"
   export BUILDKITE_AGENT_MOCK_LOG="${TEST_TMPDIR}/agent.log"
+  export BUILDKITE_AGENT_MOCK_CONFIG_DIR="${TEST_TMPDIR}"
   export BUILDKITE_AGENT_MOCK_FAIL_OPERATION="restore"
   write_buildkite_agent_mock
   touch "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.mod"
@@ -587,16 +581,17 @@ EOF
 
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"setup-go Buildkite Cache restore failed"* ]]
-  grep -F "annotate annotate --style warning --context setup-go-cache-test-job" "${BUILDKITE_AGENT_MOCK_LOG}"
-  grep -F "registry policy denied the operation" "${BUILDKITE_AGENT_MOCK_LOG}"
+  [[ "${output}" == *"registry policy may have denied the operation"* ]]
+  run grep -F "annotate" "${BUILDKITE_AGENT_MOCK_LOG}"
+  [ "${status}" -ne 0 ]
 }
 
-@test "Buildkite Cache errors can fail the step without annotation" {
+@test "Buildkite Cache errors can fail the step" {
   export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
   export BUILDKITE_PLUGIN_SETUP_GO_CACHE="true"
   export BUILDKITE_PLUGIN_SETUP_GO_CACHE_FAIL_ON_ERROR="true"
-  export BUILDKITE_PLUGIN_SETUP_GO_CACHE_ANNOTATIONS="false"
   export BUILDKITE_AGENT_MOCK_LOG="${TEST_TMPDIR}/agent.log"
+  export BUILDKITE_AGENT_MOCK_CONFIG_DIR="${TEST_TMPDIR}"
   export BUILDKITE_AGENT_MOCK_FAIL_OPERATION="restore"
   write_buildkite_agent_mock
   touch "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.mod"
@@ -604,6 +599,71 @@ EOF
   run bash hooks/pre-command
 
   [ "${status}" -ne 0 ]
-  run grep -F "annotate" "${BUILDKITE_AGENT_MOCK_LOG}"
+}
+
+@test "cache restore mode reads without writing" {
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE="restore"
+  export BUILDKITE_AGENT_MOCK_LOG="${TEST_TMPDIR}/agent.log"
+  export BUILDKITE_AGENT_MOCK_CONFIG_DIR="${TEST_TMPDIR}"
+  write_buildkite_agent_mock
+  touch "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.mod"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  grep -F "cache restore --cache-config-file" "${BUILDKITE_AGENT_MOCK_LOG}"
+
+  # shellcheck disable=SC1090
+  source "${BUILDKITE_ENV_FILE}"
+  BUILDKITE_COMMAND_EXIT_STATUS=0 run bash hooks/post-command
+
+  [ "${status}" -eq 0 ]
+  run grep -F "cache save" "${BUILDKITE_AGENT_MOCK_LOG}"
   [ "${status}" -ne 0 ]
+}
+
+@test "cache save mode writes without reading" {
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE="save"
+  export BUILDKITE_AGENT_MOCK_LOG="${TEST_TMPDIR}/agent.log"
+  export BUILDKITE_AGENT_MOCK_CONFIG_DIR="${TEST_TMPDIR}"
+  write_buildkite_agent_mock
+  touch "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.mod"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"Restoring Go caches"* ]]
+  grep -F "export SETUP_GO_CACHE_VERSION=1.24.0" "${BUILDKITE_ENV_FILE}"
+  run grep -F "cache restore" "${BUILDKITE_AGENT_MOCK_LOG}"
+  [ "${status}" -ne 0 ]
+
+  # shellcheck disable=SC1090
+  source "${BUILDKITE_ENV_FILE}"
+  BUILDKITE_COMMAND_EXIT_STATUS=0 run bash hooks/post-command
+
+  [ "${status}" -eq 0 ]
+  grep -F "cache save --cache-config-file" "${BUILDKITE_AGENT_MOCK_LOG}"
+  grep -F "{ env: SETUP_GO_CACHE_VERSION, fallback_limit: true }" "${TEST_TMPDIR}/save-cache.yml"
+}
+
+@test "rejects an invalid cache mode" {
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  export BUILDKITE_PLUGIN_SETUP_GO_CACHE="maybe"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"cache must be true, false, restore, or save"* ]]
+}
+
+@test "ignores unprefixed plugin config owned by another plugin" {
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  export BUILDKITE_PLUGIN_CACHE_ROOT="${TEST_TMPDIR}/other-plugin"
+
+  run bash hooks/pre-command
+
+  [ "${status}" -eq 0 ]
+  grep -F "export GOCACHE=${HOME}/.cache/setup-go-buildkite-plugin/go/build" "${BUILDKITE_ENV_FILE}"
 }

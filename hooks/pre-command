@@ -13,10 +13,13 @@ plugin_cfg() {
 
   key="$1"
   normalized_key="$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+  # BUILDKITE_PLUGIN__* covers the plugin vendored from a repository path, where
+  # the Agent derives an empty plugin name. The unprefixed BUILDKITE_PLUGIN_*
+  # form is deliberately not consulted: it belongs to whichever plugin owns that
+  # name, so reading it picks up another plugin's configuration.
   candidate_vars=(
     "BUILDKITE_PLUGIN_SETUP_GO_${normalized_key}"
     "BUILDKITE_PLUGIN__${normalized_key}"
-    "BUILDKITE_PLUGIN_${normalized_key}"
   )
 
   for var_name in "${candidate_vars[@]}"; do
@@ -428,7 +431,8 @@ parse_mise_toml_go() {
 }
 
 parse_plain_version_file() {
-  sed -nE '/^[[:space:]]*(#|$)/d { s/^[[:space:]]*//; s/[[:space:]]*$//; p; q; }' "$1"
+  # Keep each command separate: BSD sed rejects a block after `d`.
+  sed -nE '/^[[:space:]]*(#|$)/d; s/^[[:space:]]*//; s/[[:space:]]*$//; p; q;' "$1"
 }
 
 parse_go_version_from_file() {
@@ -573,6 +577,7 @@ main() {
   local mise_exports
 
   resolve_working_directory
+  setup_go_cache_resolve_mode
   resolve_cache_root
   resolve_mise_dir
   resolve_go_cache_dirs
@@ -627,8 +632,11 @@ main() {
   go env -json GOVERSION GOROOT GOPATH GOMODCACHE GOCACHE GOBIN
 
   if setup_go_cache_enabled; then
-    echo "~~~ Restoring Go caches"
     export_value SETUP_GO_CACHE_VERSION "$GO_VERSION"
+  fi
+
+  if setup_go_cache_restore_enabled; then
+    echo "~~~ Restoring Go caches"
     setup_go_cache_run restore
   fi
 }

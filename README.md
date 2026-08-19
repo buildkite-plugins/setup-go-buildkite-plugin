@@ -82,7 +82,20 @@ steps:
           cache: true
 ```
 
-The plugin restores `GOMODCACHE` and `GOCACHE` before the command and saves them after a successful command. Each hook generates and removes its own private temporary `cache.yml`; the repository does not need to provide one. Cache misses are non-fatal. Other Cache errors warn and annotate by default.
+The plugin restores `GOMODCACHE` and `GOCACHE` before the command and saves them after a successful command. Each hook generates and removes its own private temporary `cache.yml`; the repository does not need to provide one. Cache misses are non-fatal. Other Cache errors warn and continue unless `cache-fail-on-error` is set.
+
+`cache` also accepts `restore` and `save` for one-way steps. Use them to keep cache writes on trusted branches:
+
+```yml
+steps:
+  - label: ":golang: Test"
+    command: go test ./...
+    plugins:
+      - setup-go#v0.1.0:
+          cache: "${GO_CACHE_MODE:-restore}"
+```
+
+Set `GO_CACHE_MODE` to `save` on the default branch and leave pull requests on `restore`. Untrusted branches then never write an entry the default branch later restores, and the build cache is not re-uploaded for every commit on a branch nobody reuses.
 
 The default cache identity includes OS, architecture, resolved Go version, dependency checksum, branch, and commit where appropriate. Dependency discovery uses the first available file in this order: `go.work.sum`, `go.sum`, `go.work`, then `go.mod`. Override it for a monorepo or non-standard layout:
 
@@ -95,7 +108,7 @@ plugins:
         - shared/go.sum
 ```
 
-The cluster default registry (`~`) is used unless `cache-registry` is set. Registry policies enforce server-side save and restore authorization. The current Cache API does not expose effective policy details to jobs, so the plugin can annotate an observed failure but cannot preflight or classify the policy.
+The cluster default registry (`~`) is used unless `cache-registry` is set. Registry policies enforce server-side save and restore authorization. The current Cache API does not expose effective policy details to jobs, so the plugin reports an observed failure but cannot preflight or classify the policy.
 
 ## Configuration
 
@@ -104,11 +117,10 @@ The cluster default registry (`~`) is used unless `cache-registry` is set. Regis
 - `dir`: directory used for version discovery. Defaults to the checkout directory.
 - `mise-version` (default: `latest`): mise version to install.
 - `cache-root`: root directory for `GOCACHE`, `GOMODCACHE`, `GOPATH`, and `GOLANGCI_LINT_CACHE`. When set, `MISE_DATA_DIR` is colocated under `<cache-root>/mise`.
-- `cache` (default: `false`): restore and save Go caches with Buildkite Cache.
+- `cache` (default: `false`): Buildkite Cache mode. `true` restores and saves, `restore` reads without writing, `save` writes without reading, `false` disables it.
 - `cache-registry` (default: `~`): registry slug; `~` selects the cluster default.
 - `cache-dependency-path`: one or more paths or globs whose checksum invalidates the cache.
 - `cache-fail-on-error` (default: `false`): fail on Cache service, configuration, or authorization errors. A cache miss remains non-fatal.
-- `cache-annotations` (default: `true`): annotate Cache operation failures.
 
 ## Environment
 

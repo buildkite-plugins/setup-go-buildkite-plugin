@@ -24,9 +24,17 @@ configuration:
       type: string
       description: Root directory to use for Go caches, and for mise data when you want it colocated there.
     cache:
-      type: boolean
+      oneOf:
+        - type: boolean
+        - type: string
+          enum:
+            - restore
+            - save
       default: false
-      description: Restore and save Go caches with Buildkite Cache. Opt-in during private preview.
+      description: >-
+        Restore and save Go caches with Buildkite Cache. true restores and saves,
+        restore reads without writing, save writes without reading. Opt-in during
+        private preview.
     cache-registry:
       type: string
       default: "~"
@@ -42,7 +50,3 @@ configuration:
       type: boolean
       default: false
       description: Fail the step when a Cache restore or save operation errors. Cache misses are always non-fatal.
-    cache-annotations:
-      type: boolean
-      default: true
-      description: Annotate Cache operation failures when cache-fail-on-error is false.

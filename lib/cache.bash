@@ -1,7 +1,37 @@
 #!/usr/bin/env bash
 
+# Resolves the cache attribute into SETUP_GO_CACHE_MODE: off, restore, save, or
+# both. Call this directly from a hook, never inside a command substitution, so
+# an invalid value fails the step rather than exiting a subshell.
+setup_go_cache_resolve_mode() {
+  case "$(plugin_cfg_default cache false)" in
+    true)     SETUP_GO_CACHE_MODE="both" ;;
+    restore)  SETUP_GO_CACHE_MODE="restore" ;;
+    save)     SETUP_GO_CACHE_MODE="save" ;;
+    false|"") SETUP_GO_CACHE_MODE="off" ;;
+    *)
+      echo "cache must be true, false, restore, or save" >&2
+      exit 1
+      ;;
+  esac
+}
+
 setup_go_cache_enabled() {
-  [ "$(plugin_cfg_default cache false)" = "true" ]
+  [ "${SETUP_GO_CACHE_MODE:-off}" != "off" ]
+}
+
+setup_go_cache_restore_enabled() {
+  case "${SETUP_GO_CACHE_MODE:-off}" in
+    both|restore) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+setup_go_cache_save_enabled() {
+  case "${SETUP_GO_CACHE_MODE:-off}" in
+    both|save) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 setup_go_cache_yaml_quote() {
@@ -93,21 +123,6 @@ caches:
 YAML
 }
 
-setup_go_cache_annotate_failure() {
-  local operation="$1"
-  local agent_binary="$2"
-  local context="setup-go-cache-${BUILDKITE_JOB_ID:-local}"
-
-  if [ "$(plugin_cfg_default cache-annotations true)" != "true" ]; then
-    return
-  fi
-
-  printf '%s\n' \
-    "⚠️ setup-go could not ${operation} Buildkite Cache." \
-    "The command continued without the cache. This may indicate that Cache is unavailable or that the registry policy denied the operation." |
-    "$agent_binary" annotate --style warning --context "$context" >/dev/null 2>&1 || true
-}
-
 setup_go_cache_execute() (
   local operation="$1"
   local config_file
@@ -138,7 +153,6 @@ setup_go_cache_execute() (
 
 setup_go_cache_run() {
   local operation="$1"
-  local agent_binary="${BUILDKITE_AGENT_BINARY_PATH:-buildkite-agent}"
 
   if setup_go_cache_execute "$operation"; then
     return
@@ -146,7 +160,7 @@ setup_go_cache_run() {
 
   echo "^^^ +++"
   echo ":warning: setup-go Buildkite Cache ${operation} failed"
-  setup_go_cache_annotate_failure "$operation" "$agent_binary"
+  echo "The command continued without the cache. Cache may be unavailable, or the registry policy may have denied the operation."
 
   if [ "$(plugin_cfg_default cache-fail-on-error false)" = "true" ]; then
     return 1

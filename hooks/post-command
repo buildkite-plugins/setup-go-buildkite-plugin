@@ -10,10 +10,11 @@ plugin_cfg() {
 
   key="$1"
   normalized_key="$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]' | tr '-' '_')"
+  # See hooks/pre-command for why the unprefixed BUILDKITE_PLUGIN_* form is not
+  # consulted.
   for var_name in \
     "BUILDKITE_PLUGIN_SETUP_GO_${normalized_key}" \
-    "BUILDKITE_PLUGIN__${normalized_key}" \
-    "BUILDKITE_PLUGIN_${normalized_key}"; do
+    "BUILDKITE_PLUGIN__${normalized_key}"; do
     if [ -n "${!var_name:-}" ]; then
       printf '%s' "${!var_name}"
       return
@@ -30,7 +31,9 @@ plugin_cfg_default() {
 # shellcheck source=lib/cache.bash
 . "${HOOK_DIR}/../lib/cache.bash"
 
-if ! setup_go_cache_enabled; then
+setup_go_cache_resolve_mode
+
+if ! setup_go_cache_save_enabled; then
   exit 0
 fi
 

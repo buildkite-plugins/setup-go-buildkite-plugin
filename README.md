@@ -82,7 +82,7 @@ steps:
           cache: true
 ```
 
-The plugin restores `GOMODCACHE` and `GOCACHE` before the command and saves them after a successful command. It generates a job-scoped `cache.yml`; the repository does not need to provide one. Cache misses are non-fatal. Other Cache errors warn and annotate by default.
+The plugin restores `GOMODCACHE` and `GOCACHE` before the command and saves them after a successful command. Each hook generates and removes its own private temporary `cache.yml`; the repository does not need to provide one. Cache misses are non-fatal. Other Cache errors warn and annotate by default.
 
 The default cache identity includes OS, architecture, resolved Go version, dependency checksum, branch, and commit where appropriate. Dependency discovery uses the first available file in this order: `go.work.sum`, `go.sum`, `go.work`, then `go.mod`. Override it for a monorepo or non-standard layout:
 

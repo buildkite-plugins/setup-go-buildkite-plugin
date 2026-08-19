@@ -4,26 +4,6 @@ setup_go_cache_enabled() {
   [ "$(plugin_cfg_default cache false)" = "true" ]
 }
 
-setup_go_cache_state_dir() {
-  local state_root
-
-  if [ -n "${BUILDKITE_ENV_FILE:-}" ]; then
-    state_root="$(dirname "$BUILDKITE_ENV_FILE")"
-  else
-    state_root="${TMPDIR:-/tmp}"
-  fi
-
-  printf '%s/setup-go-buildkite-plugin-%s' "$state_root" "${BUILDKITE_JOB_ID:-local}"
-}
-
-setup_go_cache_config_file() {
-  printf '%s/cache.yml' "$(setup_go_cache_state_dir)"
-}
-
-setup_go_cache_working_directory_file() {
-  printf '%s/working-directory' "$(setup_go_cache_state_dir)"
-}
-
 setup_go_cache_yaml_quote() {
   local value="$1"
   printf "'%s'" "${value//\'/\'\'}"
@@ -82,15 +62,10 @@ setup_go_cache_checksum_yaml() {
 }
 
 setup_go_cache_write_config() {
-  local config_file
-  local state_dir
+  local config_file="$1"
   local checksum_yaml
 
-  state_dir="$(setup_go_cache_state_dir)"
-  config_file="$(setup_go_cache_config_file)"
   checksum_yaml="$(setup_go_cache_checksum_yaml)"
-  mkdir -p "$state_dir"
-  chmod 700 "$state_dir"
 
   cat > "$config_file" <<YAML
 caches:
@@ -116,8 +91,6 @@ caches:
     target_paths:
       - $(setup_go_cache_yaml_quote "$GO_BUILD_CACHE_DIR")
 YAML
-
-  printf '%s\n' "$WORKING_DIRECTORY" > "$(setup_go_cache_working_directory_file)"
 }
 
 setup_go_cache_annotate_failure() {
@@ -135,31 +108,39 @@ setup_go_cache_annotate_failure() {
     "$agent_binary" annotate --style warning --context "$context" >/dev/null 2>&1 || true
 }
 
-setup_go_cache_run() {
+setup_go_cache_execute() (
   local operation="$1"
   local config_file
   local working_directory
   local registry
   local agent_binary
 
-  config_file="$(setup_go_cache_config_file)"
-  if [ ! -f "$config_file" ]; then
-    echo "Buildkite Cache configuration is missing: $config_file" >&2
-    return 1
-  fi
-
-  working_directory="$(cat "$(setup_go_cache_working_directory_file)")"
+  working_directory="$(plugin_cfg dir)"
+  working_directory="${working_directory:-${BUILDKITE_BUILD_CHECKOUT_PATH:-$PWD}}"
+  WORKING_DIRECTORY="$working_directory"
+  GO_MOD_CACHE_DIR="${GOMODCACHE:?GOMODCACHE is required for Buildkite Cache}"
+  GO_BUILD_CACHE_DIR="${GOCACHE:?GOCACHE is required for Buildkite Cache}"
   registry="$(plugin_cfg_default cache-registry '~')"
   agent_binary="${BUILDKITE_AGENT_BINARY_PATH:-buildkite-agent}"
 
-  if (
-    cd "$working_directory"
-    "$agent_binary" cache "$operation" \
-      --cache-config-file "$config_file" \
-      --registry "$registry" \
-      --name setup-go-modules \
-      --name setup-go-build
-  ); then
+  umask 077
+  config_file="$(mktemp "${TMPDIR:-/tmp}/setup-go-cache.XXXXXX")"
+  trap 'rm -f "$config_file"' EXIT
+  setup_go_cache_write_config "$config_file"
+
+  cd "$working_directory" || exit
+  "$agent_binary" cache "$operation" \
+    --cache-config-file "$config_file" \
+    --registry "$registry" \
+    --name setup-go-modules \
+    --name setup-go-build
+)
+
+setup_go_cache_run() {
+  local operation="$1"
+  local agent_binary="${BUILDKITE_AGENT_BINARY_PATH:-buildkite-agent}"
+
+  if setup_go_cache_execute "$operation"; then
     return
   fi
 

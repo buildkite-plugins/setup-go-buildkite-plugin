@@ -629,7 +629,6 @@ main() {
   if setup_go_cache_enabled; then
     echo "~~~ Restoring Go caches"
     export_value SETUP_GO_CACHE_VERSION "$GO_VERSION"
-    setup_go_cache_write_config
     setup_go_cache_run restore
   fi
 }

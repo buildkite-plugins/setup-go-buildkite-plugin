@@ -192,7 +192,18 @@ if [ "${1:-}" = "annotate" ]; then
 fi
 
 printf '%s\n' "$*" >> "${BUILDKITE_AGENT_MOCK_LOG}"
-if [ "${BUILDKITE_AGENT_MOCK_FAIL_OPERATION:-}" = "${2:-}" ]; then
+if [ "${1:-}" = "cache" ]; then
+  operation="$2"
+  shift 2
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--cache-config-file" ]; then
+      cp "$2" "${BUILDKITE_AGENT_MOCK_CONFIG_DIR}/${operation}-cache.yml"
+      break
+    fi
+    shift
+  done
+fi
+if [ "${BUILDKITE_AGENT_MOCK_FAIL_OPERATION:-}" = "${operation:-}" ]; then
   exit 1
 fi
 MOCK
@@ -538,23 +549,30 @@ EOF
   export BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH_0="go.mod"
   export BUILDKITE_PLUGIN_SETUP_GO_CACHE_DEPENDENCY_PATH_1="go.sum"
   export BUILDKITE_AGENT_MOCK_LOG="${TEST_TMPDIR}/agent.log"
+  export BUILDKITE_AGENT_MOCK_CONFIG_DIR="${TEST_TMPDIR}"
   write_buildkite_agent_mock
   touch "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.mod" "${BUILDKITE_BUILD_CHECKOUT_PATH}/go.sum"
 
   run bash hooks/pre-command
 
   [ "${status}" -eq 0 ]
-  config_file="${TEST_TMPDIR}/setup-go-buildkite-plugin-test-job/cache.yml"
-  [ -f "${config_file}" ]
-  grep -F "{ checksum: ['go.mod', 'go.sum'] }" "${config_file}"
-  grep -F "${HOME}/.cache/setup-go-buildkite-plugin/go/pkg/mod" "${config_file}"
-  grep -F "cache restore --cache-config-file ${config_file} --registry go-registry --name setup-go-modules --name setup-go-build" "${BUILDKITE_AGENT_MOCK_LOG}"
+  grep -F "{ checksum: ['go.mod', 'go.sum'] }" "${TEST_TMPDIR}/restore-cache.yml"
+  grep -F "${HOME}/.cache/setup-go-buildkite-plugin/go/pkg/mod" "${TEST_TMPDIR}/restore-cache.yml"
+  grep -F "cache restore --cache-config-file" "${BUILDKITE_AGENT_MOCK_LOG}"
+  restore_config_file="$(awk '/cache restore/ { for (i = 1; i <= NF; i++) if ($i == "--cache-config-file") print $(i + 1) }' "${BUILDKITE_AGENT_MOCK_LOG}")"
+  [ ! -e "${restore_config_file}" ]
+  [ ! -e "${TEST_TMPDIR}/setup-go-buildkite-plugin-test-job" ]
 
+  # shellcheck disable=SC1090
+  source "${BUILDKITE_ENV_FILE}"
   BUILDKITE_COMMAND_EXIT_STATUS=0 run bash hooks/post-command
 
   [ "${status}" -eq 0 ]
-  grep -F "cache save --cache-config-file ${config_file} --registry go-registry --name setup-go-modules --name setup-go-build" "${BUILDKITE_AGENT_MOCK_LOG}"
-  [ ! -e "${config_file}" ]
+  grep -F "{ checksum: ['go.mod', 'go.sum'] }" "${TEST_TMPDIR}/save-cache.yml"
+  grep -F "cache save --cache-config-file" "${BUILDKITE_AGENT_MOCK_LOG}"
+  save_config_file="$(awk '/cache save/ { for (i = 1; i <= NF; i++) if ($i == "--cache-config-file") print $(i + 1) }' "${BUILDKITE_AGENT_MOCK_LOG}")"
+  [ ! -e "${save_config_file}" ]
+  [ ! -e "${TEST_TMPDIR}/setup-go-buildkite-plugin-test-job" ]
 }
 
 @test "Buildkite Cache errors warn and annotate by default" {

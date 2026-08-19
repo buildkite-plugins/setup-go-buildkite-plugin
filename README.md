@@ -84,7 +84,19 @@ steps:
 
 The plugin restores `GOMODCACHE` and `GOCACHE` before the command and saves them after a successful command. Each hook generates and removes its own private temporary `cache.yml`; the repository does not need to provide one. Cache misses are non-fatal. Other Cache errors warn and continue unless `cache-fail-on-error` is set.
 
-`cache` also accepts `restore` and `save` for one-way steps. Use them to keep cache writes on trusted branches:
+`cache` also accepts `restore` and `save` for one-way steps. Use them to keep cache writes on trusted branches — save on the default branch:
+
+```yml
+steps:
+  - label: ":golang: Warm cache"
+    command: go build ./...
+    branches: main
+    plugins:
+      - setup-go#v0.1.0:
+          cache: save
+```
+
+and restore everywhere else:
 
 ```yml
 steps:
@@ -92,10 +104,12 @@ steps:
     command: go test ./...
     plugins:
       - setup-go#v0.1.0:
-          cache: "${GO_CACHE_MODE:-restore}"
+          cache: restore
 ```
 
-Set `GO_CACHE_MODE` to `save` on the default branch and leave pull requests on `restore`. Untrusted branches then never write an entry the default branch later restores, and the build cache is not re-uploaded for every commit on a branch nobody reuses.
+Untrusted branches then never write an entry the default branch later restores, and the build cache is not re-uploaded for every commit on a branch nobody reuses.
+
+Because the value is a plain string, a single step can cover both roles by interpolating it at upload time, for example `cache: "${GO_CACHE_MODE}"` with the variable set per branch.
 
 The default cache identity includes OS, architecture, resolved Go version, dependency checksum, branch, and commit where appropriate. Dependency discovery uses the first available file in this order: `go.work.sum`, `go.sum`, `go.work`, then `go.mod`. Override it for a monorepo or non-standard layout:
 

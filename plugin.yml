@@ -9,7 +9,7 @@ configuration:
   properties:
     version:
       type: string
-      description: Go version to install, for example 1.24.0 or 1.24.
+      description: Go version to install, for example 1.26.10 or 1.26.
     version-file:
       type: string
       description: Path to a file containing the Go version. Relative paths are resolved from dir.

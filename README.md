@@ -20,7 +20,7 @@ steps:
   - label: ":golang: Test"
     plugins:
       - setup-go#v0.1.0:
-          version: 1.24.0
+          version: 1.26.10
     command: go test ./...
 ```
 
@@ -71,7 +71,7 @@ When running on Buildkite hosted agents, the plugin automatically uses `/cache/b
 
 ## Configuration
 
-- `version`: Go version to install, for example `1.24.0`. Highest precedence.
+- `version`: Go version to install, for example `1.26.10`. Highest precedence.
 - `version-file`: file containing the Go version. Relative paths are resolved from `dir`.
 - `dir`: directory used for version discovery. Defaults to the checkout directory.
 - `mise-version` (default: `latest`): mise version to install.

@@ -18,8 +18,8 @@ configuration:
       description: Directory where version discovery runs. Defaults to the checkout directory.
     mise-version:
       type: string
-      default: "latest"
-      description: Version of mise to install, for example 2026.10.17.
+      default: latest
+      description: Version of mise to install, for example 2026.3.9.
     cache-root:
       type: string
       description: Root directory to use for Go caches, and for mise data when you want it colocated there.

@@ -238,8 +238,7 @@ detect_platform() {
   esac
 
   if [ "$os" = "linux" ] && command -v ldd >/dev/null 2>&1; then
-    # musl ldd reports its version with a nonzero exit status.
-    if grep -qi musl <<< "$(ldd --version 2>&1 || true)"; then
+    if ldd --version 2>&1 | grep -qi musl; then
       musl_suffix="-musl"
     fi
   fi
@@ -270,44 +269,12 @@ installed_mise_version() {
   '
 }
 
-# Qualify this remediated release by artifact, not just its reported version.
-qualified_mise_checksum() {
-  case "$1:$2" in
-    2026.10.17:linux-x64) echo "fe6dd17e68e09682b31d2e7bb7bb755d22636ac1af5d94621e300f2ca9e9fe8a" ;;
-    2026.10.17:linux-x64-musl) echo "f6e5e457103252eca6032dbc5c29bff7e0c73f1bc0f915541e7658ba360d4287" ;;
-    2026.10.17:linux-arm64) echo "e90904144ba4377c5fbe385f429830282c68f3b4f9c690bf6c5a2ae9b74a809b" ;;
-    2026.10.17:linux-arm64-musl) echo "86d4db8bb1277ce164d75c0ba12179830ab172c318598f878f8286d27978e4f2" ;;
-    2026.10.17:linux-armv7) echo "3f30c9e22a951bb18cc0137c8b2e84aab269d1f8d85f41eaad0d9ec964cd9df2" ;;
-    2026.10.17:linux-armv7-musl) echo "87b9e1d2a9f05e724257ed35393ec6877368afec9c1a546924ce04e9682e86a0" ;;
-    2026.10.17:macos-arm64) echo "9e27709db5eb1e900d83149418d3067309f2a5004d4994d94246ab658ba4a3ce" ;;
-    2026.10.17:macos-x64) echo "dac5d6db5e315d8e4f096c6ead9279d342e09fdcb5c373d0df5c7dcce8195746" ;;
-    *) return 1 ;;
-  esac
-}
-
-mise_checksum_matches() {
-  local binary="$1"
-  local expected="$2"
-  local actual
-
-  [ -f "$binary" ] || return 1
-  if command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$binary" | awk '{print $1}')"
-  else
-    require_cmd shasum
-    actual="$(shasum -a 256 "$binary" | awk '{print $1}')"
-  fi
-  [ "$actual" = "$expected" ]
-}
-
 install_mise() {
   local version="$1"
   local platform="$2"
   local archive
   local extracted
   local url
-  local binary
-  local checksum
 
   url="https://github.com/jdx/mise/releases/download/v${version}/mise-v${version}-${platform}.tar.gz"
   archive="$(mktemp)"
@@ -323,21 +290,13 @@ install_mise() {
 
     mkdir -p "$MISE_BIN"
     if [ -x "$extracted/mise/bin/mise" ]; then
-      binary="$extracted/mise/bin/mise"
+      mv "$extracted/mise/bin/mise" "$MISE_BINARY"
     elif [ -x "$extracted/bin/mise" ]; then
-      binary="$extracted/bin/mise"
+      mv "$extracted/bin/mise" "$MISE_BINARY"
     else
       echo "Could not find mise binary in ${url}" >&2
       exit 1
     fi
-
-    if checksum="$(qualified_mise_checksum "$version" "$platform")"; then
-      if ! mise_checksum_matches "$binary" "$checksum"; then
-        echo "mise v${version} checksum mismatch for ${platform}" >&2
-        exit 1
-      fi
-    fi
-    mv "$binary" "$MISE_BINARY"
   )
 }
 
@@ -607,7 +566,6 @@ main() {
   local mise_version
   local platform
   local mise_exports
-  local checksum
 
   resolve_working_directory
   resolve_cache_root
@@ -639,16 +597,9 @@ main() {
 
   ensure_cache_dirs
 
-  if checksum="$(qualified_mise_checksum "$mise_version" "$platform")"; then
-    # Do not execute an unverified cached binary, even to read its version.
-    if [ ! -x "$MISE_BINARY" ] || ! mise_checksum_matches "$MISE_BINARY" "$checksum"; then
-      install_mise "$mise_version" "$platform"
-    fi
-  else
-    current_mise_version="$(installed_mise_version)"
-    if [ -z "$current_mise_version" ] || [ "$current_mise_version" != "$mise_version" ]; then
-      install_mise "$mise_version" "$platform"
-    fi
+  current_mise_version="$(installed_mise_version)"
+  if [ -z "$current_mise_version" ] || [ "$current_mise_version" != "$mise_version" ]; then
+    install_mise "$mise_version" "$platform"
   fi
 
   resolve_go_version

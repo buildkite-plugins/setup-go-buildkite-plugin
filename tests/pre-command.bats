@@ -503,3 +503,19 @@ EOF
   [ -x "${MISE_DATA_DIR}/bin/mise" ]
   [[ "${output}" != *"archive: unbound variable"* ]]
 }
+
+@test "default latest replaces an older cached mise release" {
+  unset BUILDKITE_PLUGIN_SETUP_GO_MISE_VERSION
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  setup_install_mocks
+
+  run bash -c '
+    source <(sed '\''$d'\'' hooks/pre-command)
+    latest_mise_version() { echo 2026.10.18; }
+    main
+  '
+  echo "${output}"
+
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Downloading mise v2026.10.18 for "* ]]
+}

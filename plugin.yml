@@ -18,7 +18,7 @@ configuration:
       description: Directory where version discovery runs. Defaults to the checkout directory.
     mise-version:
       type: string
-      default: "2026.10.17"
+      default: "latest"
       description: Version of mise to install, for example 2026.10.17.
     cache-root:
       type: string

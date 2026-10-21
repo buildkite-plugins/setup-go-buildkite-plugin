@@ -270,7 +270,7 @@ installed_mise_version() {
   '
 }
 
-# Qualify the owned default by artifact, not just its reported version.
+# Qualify this remediated release by artifact, not just its reported version.
 qualified_mise_checksum() {
   case "$1:$2" in
     2026.10.17:linux-x64) echo "fe6dd17e68e09682b31d2e7bb7bb755d22636ac1af5d94621e300f2ca9e9fe8a" ;;
@@ -625,7 +625,7 @@ main() {
   echo "Using go bin dir: ${GO_BIN_DIR} (${GO_BIN_SOURCE})"
   echo "Using golangci-lint cache: ${GOLANGCI_LINT_CACHE_DIR} (${GOLANGCI_LINT_CACHE_SOURCE})"
 
-  requested_mise_version_raw="$(plugin_cfg_default mise-version 2026.10.17)"
+  requested_mise_version_raw="$(plugin_cfg_default mise-version latest)"
   if [ "$requested_mise_version_raw" = "latest" ]; then
     mise_version="$(latest_mise_version)"
   else

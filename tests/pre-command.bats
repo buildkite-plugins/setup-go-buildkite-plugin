@@ -542,6 +542,29 @@ run_qualified_mise_hook() {
   cmp "${MISE_DATA_DIR}/bin/mise" "${TEST_TMPDIR}/expected/mise/bin/mise"
 }
 
+@test "default mise replaces an invalid cache without executing it" {
+  unset BUILDKITE_PLUGIN_SETUP_GO_MISE_VERSION
+  export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"
+  cat > "${MISE_DATA_DIR}/bin/mise" <<'MOCK'
+#!/usr/bin/env bash
+: > "${TEST_TMPDIR}/unverified-executed"
+exit 1
+MOCK
+  chmod +x "${MISE_DATA_DIR}/bin/mise"
+  setup_install_mocks
+  tar -C "${TEST_TMPDIR}/expected"
+  export TEST_MISE_CHECKSUM
+  TEST_MISE_CHECKSUM="$(test_mise_checksum "${TEST_TMPDIR}/expected/mise/bin/mise")"
+
+  run_qualified_mise_hook
+  echo "${output}"
+
+  [ "${status}" -eq 0 ]
+  [ ! -e "${TEST_TMPDIR}/unverified-executed" ]
+  [[ "${output}" == *"Downloading mise v2026.10.17 for linux-x64"* ]]
+  cmp "${MISE_DATA_DIR}/bin/mise" "${TEST_TMPDIR}/expected/mise/bin/mise"
+}
+
 @test "default mise reuses a qualified matching cache" {
   unset BUILDKITE_PLUGIN_SETUP_GO_MISE_VERSION
   export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"

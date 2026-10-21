@@ -639,11 +639,16 @@ main() {
 
   ensure_cache_dirs
 
-  current_mise_version="$(installed_mise_version)"
-  if [ -z "$current_mise_version" ] || [ "$current_mise_version" != "$mise_version" ]; then
-    install_mise "$mise_version" "$platform"
-  elif checksum="$(qualified_mise_checksum "$mise_version" "$platform")" && ! mise_checksum_matches "$MISE_BINARY" "$checksum"; then
-    install_mise "$mise_version" "$platform"
+  if checksum="$(qualified_mise_checksum "$mise_version" "$platform")"; then
+    # Do not execute an unverified cached binary, even to read its version.
+    if [ ! -x "$MISE_BINARY" ] || ! mise_checksum_matches "$MISE_BINARY" "$checksum"; then
+      install_mise "$mise_version" "$platform"
+    fi
+  else
+    current_mise_version="$(installed_mise_version)"
+    if [ -z "$current_mise_version" ] || [ "$current_mise_version" != "$mise_version" ]; then
+      install_mise "$mise_version" "$platform"
+    fi
   fi
 
   resolve_go_version

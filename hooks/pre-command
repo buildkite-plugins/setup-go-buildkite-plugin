@@ -238,7 +238,8 @@ detect_platform() {
   esac
 
   if [ "$os" = "linux" ] && command -v ldd >/dev/null 2>&1; then
-    if ldd --version 2>&1 | grep -qi musl; then
+    # musl ldd reports its version with a nonzero exit status.
+    if grep -qi musl <<< "$(ldd --version 2>&1 || true)"; then
       musl_suffix="-musl"
     fi
   fi

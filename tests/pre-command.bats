@@ -504,6 +504,27 @@ EOF
   [[ "${output}" != *"archive: unbound variable"* ]]
 }
 
+@test "detects musl even when ldd version exits nonzero" {
+  cat > "${TEST_TMPDIR}/mock-bin/uname" <<'MOCK'
+#!/usr/bin/env bash
+case "$1" in
+  -s) echo Linux ;;
+  -m) echo aarch64 ;;
+esac
+MOCK
+  cat > "${TEST_TMPDIR}/mock-bin/ldd" <<'MOCK'
+#!/usr/bin/env bash
+echo 'musl libc (aarch64)' >&2
+exit 1
+MOCK
+  chmod +x "${TEST_TMPDIR}/mock-bin/uname" "${TEST_TMPDIR}/mock-bin/ldd"
+
+  run bash -c 'source <(sed '\''$d'\'' hooks/pre-command); detect_platform'
+
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"linux-arm64-musl"* ]]
+}
+
 @test "default latest replaces an older cached mise release" {
   unset BUILDKITE_PLUGIN_SETUP_GO_MISE_VERSION
   export BUILDKITE_PLUGIN_SETUP_GO_VERSION="1.24.0"

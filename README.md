@@ -74,8 +74,18 @@ When running on Buildkite hosted agents, the plugin automatically uses `/cache/b
 - `version`: Go version to install, for example `1.24.0`. Highest precedence.
 - `version-file`: file containing the Go version. Relative paths are resolved from `dir`.
 - `dir`: directory used for version discovery. Defaults to the checkout directory.
-- `mise-version` (default: `latest`): mise version to install.
+- `mise-version` (default: `2026.10.17`): mise version to install.
 - `cache-root`: root directory for `GOCACHE`, `GOMODCACHE`, `GOPATH`, and `GOLANGCI_LINT_CACHE`. When set, `MISE_DATA_DIR` is colocated under `<cache-root>/mise`.
+
+The default mise release is checksum-verified, including an existing cached binary;
+a nonmatching cache is replaced. Explicit `mise-version` overrides (including
+`latest`) remain supported. Other releases retain version-based cache reuse.
+Bootstrap downloads use the host's `curl` and CA trust; this plugin does not
+manage the host trust store.
+
+Go remains selected by your configuration or repository files. Select a patched
+Go release (for example `1.26.10` or `1.27.3`) and rebuild retained Go-based TLS
+clients as needed: updating mise does not rebuild already-installed Go executables.
 
 ## Environment
 

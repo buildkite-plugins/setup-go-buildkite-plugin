@@ -19,7 +19,7 @@ This plugin is intentionally opinionated:
 steps:
   - label: ":golang: Test"
     plugins:
-      - setup-go#v0.1.0:
+      - setup-go#v0.1.1:
           version: 1.27.3
     command: go test ./...
 ```
@@ -30,7 +30,7 @@ steps:
 steps:
   - label: ":golang: Test"
     plugins:
-      - setup-go#v0.1.0: ~
+      - setup-go#v0.1.1: ~
     command: go test ./...
 ```
 
@@ -50,7 +50,7 @@ For `go.mod` and `go.work`, `toolchain go1.x.y` wins over `go 1.x`, while `toolc
 steps:
   - label: ":golang: Test backend"
     plugins:
-      - setup-go#v0.1.0:
+      - setup-go#v0.1.1:
           dir: backend
     command: go test ./...
 ```
@@ -63,7 +63,7 @@ cache: ".buildkite/cache-volume"
 steps:
   - label: ":golang: Test"
     plugins:
-      - setup-go#v0.1.0: ~
+      - setup-go#v0.1.1: ~
     command: go test ./...
 ```
 

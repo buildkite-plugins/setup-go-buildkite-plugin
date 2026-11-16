@@ -1,7 +1,7 @@
 steps:
   - label: ":sparkles: Tests"
     plugins:
-      - plugin-tester#v1.3.0: ~
+      - plugin-tester#v2.0.0: ~
 
   - label: ":lint-roller: Lint"
     plugins:
